@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP-32 C3 SM ASF 控制台</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 560px; margin: 0 auto; padding: 16px; background: #111; color: #eee; }
+  h1 { font-size: 20px; }
+  .card { background: #1d1d1f; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  label { display: block; margin-top: 10px; font-size: 13px; color: #bbb; }
+  input, select { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 8px; border: 1px solid #444; border-radius: 6px; background: #2a2a2d; color: #eee; }
+  button { margin-top: 14px; width: 100%; padding: 10px; border: 0; border-radius: 6px; background: #0a84ff; color: #fff; font-size: 15px; }
+  button.danger { background: #e5484d; }
+  #status { font-size: 14px; line-height: 1.8; white-space: pre-wrap; }
+  .ok { color: #4cd964; } .err { color: #ff6b6b; } .warn { color: #ffcc00; }
+  .row { display: flex; gap: 8px; } .row button { flex: 1; }
+  .banner { background:#332b00; border:1px solid #ffcc00; color:#ffcc00; padding:10px; border-radius:8px; margin-bottom:10px; font-weight:bold; text-align:center; }
+  .link { color:#0a84ff; cursor:pointer; text-decoration:underline; }
+  .hidden { display:none; }
+  details summary { cursor:pointer; color:#bbb; font-size:13px; }
+</style>
+</head>
+<body>
+<h1>ESP-32 C3 SM ASF 控制台</h1>
+
+<div class="card">
+  <div id="twofaBanner" class="banner hidden">
+    请在 Steam Mobile 中确认登录
+    <div style="margin-top:8px"><span class="link" onclick="toggleTotp()">使用令牌</span></div>
+    <div id="totpRow" class="hidden" style="margin-top:8px">
+      <input id="totpInput" placeholder="输入 Steam Mobile 中显示的确认码" inputmode="numeric" autocomplete="off">
+      <button onclick="submitTotp()">发送令牌并确认</button>
+    </div>
+  </div>
+  <div id="status">加载中...</div>
+  <div class="row">
+    <button onclick="refresh()">刷新状态</button>
+    <button id="btnStart" onclick="toggleStart()">启动挂机</button>
+    <button class="danger" onclick="reboot()">重启设备</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="font-size:16px;margin:0 0 6px">配置</h2>
+  <form id="cfg" onsubmit="save(event)">
+    <label>WiFi SSID</label><input name="wifi_ssid" autocomplete="off">
+    <label>WiFi 密码</label><input name="wifi_pass" type="password" autocomplete="off" placeholder="留空则保持不变">
+    <label>Steam 账号</label><input name="account" autocomplete="off">
+    <label>Steam 密码</label><input name="password" type="password" autocomplete="off" placeholder="留空则保持不变">
+    <details open>
+      <summary>Refresh Token（可选：留空则自动用账号密码认证获取）</summary>
+      <label>Refresh Token</label><input name="refresh_token" autocomplete="off" placeholder="留空则保持不变">
+      <label style="font-weight:normal"><input type="checkbox" name="refresh_token_clear" value="1" style="width:auto"> 清除已保存的 Refresh Token</label>
+      <div style="font-size:12px;color:#888;margin-top:6px">留空时设备会自动用上面的账号密码完成 Steam 认证（首次需在 Steam 手机 App 中确认），成功后 token 会自动保存。</div>
+    </details>
+    <details>
+      <summary>配置 Shared Secret（高级，可选）</summary>
+      <label>Shared Secret（2FA 自动令牌，默认不需要填）</label><input name="shared_secret" autocomplete="off">
+    </details>
+    <label>挂机 AppID</label><input name="appid" type="number" min="0">
+    <label>心跳间隔（秒，10-255）</label><input name="heartbeat_secs" type="number" min="10" max="255">
+    <label>功耗模式</label>
+    <select name="power_mode">
+      <option value="0">节能</option>
+      <option value="1">均衡</option>
+      <option value="2">性能</option>
+    </select>
+    <label style="font-weight:normal"><input type="checkbox" name="auto_start" value="1" style="width:auto"> 开机自动挂机（掉电/重启后自动恢复）</label>
+    <button type="submit">保存配置</button>
+  </form>
+</div>
+
+<script>
+function esc(s) { return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmtSecs(s) {
+  if (!s || s < 0) return "-";
+  var d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
+  return (d? d+"天 ":"") + (h? h+"小时 ":"") + m + "分钟";
+}
+function refresh() {
+  fetch('/api/status').then(r=>r.json()).then(s => {
+    var st = s.steam || "unknown";
+    var cls = st === "logged_in" ? "ok" : (st === "connecting" ? "warn" : "err");
+    var ago = s.last_heartbeat ? fmtSecs(Math.max(0, (s.uptime||0) - (s.last_heartbeat||0))) : "-";
+    document.getElementById('status').innerHTML =
+      '<b>Steam 状态</b>: <span class="'+cls+'">'+esc(st)+'</span>' + (s.started ? '' : '（未启动）') + '\n' +
+      '<b>EResult</b>: ' + (s.eresult||0) + '\n' +
+      '<b>WiFi RSSI</b>: ' + (s.rssi||0) + ' dBm\n' +
+      '<b>在线时长</b>: ' + fmtSecs(s.online_secs) + '\n' +
+      '<b>心跳次数</b>: ' + (s.heartbeat_count||0) + '\n' +
+      '<b>最后心跳</b>: ' + ago + ' 前\n' +
+      '<b>错误</b>: ' + esc(s.error||"-");
+    document.getElementById('btnStart').textContent = s.started ? '停止挂机' : '启动挂机';
+    var b = document.getElementById('twofaBanner');
+    if (s.awaiting_2fa) { b.classList.remove('hidden'); } else { b.classList.add('hidden'); }
+  }).catch(e => { document.getElementById('status').innerHTML = '<span class="err">状态获取失败</span>'; });
+}
+function toggleStart() {
+  var btn = document.getElementById('btnStart');
+  var starting = btn.textContent === '启动挂机';
+  if (!starting) {
+    if (!confirm('确定停止挂机？')) return;
+    fetch('/api/stop', {method:'POST'}).then(r=>r.json()).then(j=>{ if(j.ok) refresh(); }).catch(()=>alert('停止失败'));
+    return;
+  }
+  // 启动前先把表单里未保存的改动写进设备，避免"填了密码没点保存就启动"报配置不完整
+  // 是否可启动由 /api/start 服务端判定（Config::missing），前端只展示错误
+  saveCfg().then(function(r) {
+    if (!r.ok) { alert('启动前保存配置失败，请检查网络后重试'); return; }
+    if (r.lost.length) { alert('启动前保存失败：' + r.lost.join('、') + ' 未写入设备'); return; }
+    fetch('/api/start', {method:'POST'}).then(function(r2) {
+      return r2.json().then(function(j) { return {status:r2.status, j:j}; });
+    }).then(function(res) {
+      if (res.j.ok) { refresh(); return; }
+      alert(res.j.error || '无法启动：配置不完整');
+    }).catch(()=>alert('启动失败'));
+  }).catch(function() { alert('启动失败：网络或设备无响应'); });
+}
+function toggleTotp() { document.getElementById('totpRow').classList.toggle('hidden'); }
+function submitTotp() {
+  var code = document.getElementById('totpInput').value.trim();
+  if (!code) { alert('请输入令牌'); return; }
+  fetch('/api/totp', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'code='+encodeURIComponent(code)})
+    .then(r=>r.json()).then(j=>{ if(j.ok){ alert('令牌已发送，等待确认...'); document.getElementById('totpInput').value=''; } else alert('发送失败'); })
+    .catch(()=>alert('发送失败'));
+}
+function reboot() {
+  if (confirm("确定重启设备？")) {
+    fetch('/api/reboot', {method:'POST'}).then(() => alert('重启中...')).catch(()=>alert('已请求重启'));
+  }
+}
+// 保存设备返回的密码脱敏串，用于判断"用户是否真的改了密码"。
+// 只有与脱敏串完全相同或留空才视为不修改；不再用含 '*' 判断，避免真实密码含 * 被误丢弃。
+var origMasked = {wifi_pass:'', password:'', shared_secret:'', refresh_token:''};
+function applyCfg(c) {
+  var form = document.getElementById('cfg');
+  ['wifi_ssid','account','appid','heartbeat_secs'].forEach(function(k) {
+    var el = form.elements[k]; if (el && c[k] !== undefined) el.value = c[k];
+  });
+  ['wifi_pass','password','shared_secret','refresh_token'].forEach(function(k) {
+    var el = form.elements[k]; if (!el) return;
+    var prev = origMasked[k];
+    origMasked[k] = c[k] || '';
+    // 仅当输入框为空或仍是上一轮脱敏占位时才回填，避免覆盖用户正在输入的新密码
+    if (!el.value || el.value === prev) el.value = origMasked[k];
+    el.placeholder = origMasked[k] ? '已保存，留空保持不变' : '请输入';
+  });
+  if (form.elements.power_mode && c.power_mode !== undefined) form.elements.power_mode.value = String(c.power_mode);
+  if (form.elements.auto_start) form.elements.auto_start.checked = !!c.auto_start;
+}
+function loadCfg() {
+  fetch('/api/config?_t=' + Date.now(), {cache:'no-store'}).then(r=>r.json()).then(applyCfg).catch(function(){});
+}
+function collectCfg() {
+  var form = document.getElementById('cfg');
+  var body = new URLSearchParams();
+  var sent = {};
+  var clearPassword = false;
+  var vals = {};
+  new FormData(form).forEach(function(v, k) { vals[k] = v; });
+  ['wifi_pass', 'password', 'shared_secret', 'refresh_token'].forEach(function(k) {
+    var v = vals[k] || '';
+    if (!v) {
+      // 留空且设备原本已有该值：视为主动清除，显式通知设备删除
+      if (k === 'password' && origMasked[k]) clearPassword = true;
+      delete vals[k];
+      return;
+    }
+    if (v === origMasked[k]) { delete vals[k]; return; }
+    sent[k] = v;
+  });
+  if (clearPassword) body.append('password_clear', '1');
+  // 复选框未勾选时 FormData 不含该键，这里显式补 0，确保能关闭"开机自动挂机"
+  var autoStart = vals.auto_start ? '1' : '0';
+  delete vals.auto_start;
+  Object.keys(vals).forEach(function(k) { body.append(k, vals[k]); });
+  body.append('auto_start', autoStart);
+  return {body: body.toString(), sent: sent, clearPassword: clearPassword};
+}
+// 提交配置并回读设备校验，resolve {ok, lost, cfg}
+// 就绪判断只由设备端 Config::missing() 给出（cfg.ready），前端不再重复实现规则
+function saveCfg() {
+  var p = collectCfg();
+  return fetch('/api/config?_t=' + Date.now(), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: p.body,
+    cache: 'no-store'
+  }).then(function(r) { return r.json(); }).then(function(j) {
+    if (!j || !j.ok) return {ok:false, lost:[], cfg:null};
+    return fetch('/api/config?_t=' + Date.now(), {cache:'no-store'}).then(r=>r.json()).then(function(c) {
+      var lost = [];
+      if (!p.clearPassword && p.sent.password && !c.password) lost.push('Steam 密码');
+      if (p.sent.wifi_pass && !c.wifi_pass) lost.push('WiFi 密码');
+      if (p.sent.shared_secret && !c.shared_secret) lost.push('Shared Secret');
+      if (p.sent.refresh_token && !c.refresh_token) lost.push('Refresh Token');
+      applyCfg(c);
+      return {ok:true, lost:lost, cfg:c};
+    });
+  });
+}
+function save(ev) {
+  ev.preventDefault();
+  saveCfg().then(function(r) {
+    if (!r.ok) { alert('保存失败：设备拒绝写入，请重试'); return; }
+    if (r.lost.length) alert('保存失败：' + r.lost.join('、') + ' 未写入设备，请重新输入后再次保存');
+    else if (!r.cfg.ready) alert('已保存到设备，但配置不完整（缺少 WiFi/账号/密码/AppID），无法启动挂机');
+    else alert('配置已保存，可以启动挂机');
+  }).catch(function(e) { alert('保存失败：网络或设备无响应（' + e + '）'); });
+}
+refresh(); loadCfg();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

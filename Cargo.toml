@@ -1,0 +1,33 @@
+[package]
+name = "esp32c3-sm-asf"
+version = "0.1.0"
+edition = "2021"
+description = "ESP32-C3 SuperMini 极简 Steam 挂机客户端（研究级）"
+license = "MIT"
+
+[profile.dev]
+opt-level = "s"
+debug = true
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+
+[dependencies]
+anyhow = "1"
+heapless = "0.9"
+esp-idf-svc = { version = "0.53", features = ["critical-section", "alloc"] }
+esp-idf-sys = "0.38"
+esp-idf-hal = { version = "0.47", features = ["critical-section"] }
+embedded-svc = "0.29"
+sha1 = "0.10"
+crc32fast = "1.4"
+log = "0.4"
+libc = "0.2"
+
+[build-dependencies]
+embuild = "0.33"
+
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "joltwallet/littlefs", version = "1.22" }

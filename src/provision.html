@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP32-C3 SM ASF 配网</title>
+<style>
+  body { margin:0; font-family: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+         background:#0f172a; color:#e2e8f0; display:flex; align-items:center;
+         justify-content:center; min-height:100vh; }
+  .card { background:#1e293b; border:1px solid #334155; border-radius:14px;
+          padding:28px 24px; width:min(92vw,360px); box-shadow:0 8px 24px rgba(0,0,0,.35); }
+  h1 { font-size:20px; margin:0 0 4px; color:#f8fafc; }
+  .sub { color:#94a3b8; font-size:13px; margin-bottom:20px; }
+  label { display:block; font-size:13px; margin:12px 0 4px; color:#cbd5e1; }
+  input { width:100%; box-sizing:border-box; padding:10px 12px; border-radius:8px;
+          border:1px solid #475569; background:#0f172a; color:#e2e8f0; font-size:14px; }
+  input:focus { outline:none; border-color:#38bdf8; }
+  button { width:100%; margin-top:20px; padding:12px; border:none; border-radius:8px;
+           background:#38bdf8; color:#082f49; font-size:15px; font-weight:600; cursor:pointer; }
+  button:active { opacity:.85; }
+  .tip { color:#64748b; font-size:12px; margin-top:16px; line-height:1.6; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>ESP32-C3 SM ASF</h1>
+  <p class="sub">配网模式：请填写要连接的 WiFi 信息</p>
+  <form method="post" action="/api/config">
+    <label>WiFi 名称 (SSID)</label>
+    <input name="wifi_ssid" required maxlength="32" autocomplete="off">
+    <label>WiFi 密码</label>
+    <input name="wifi_pass" type="password" maxlength="64" placeholder="无密码可留空">
+    <button type="submit">连接网络</button>
+  </form>
+  <p class="tip">提交后本 AP 将关闭，页面断开属正常现象。设备会尝试连接你填写的 WiFi 并验证外网，成功后进入正常运行；失败会自动重开本配网 AP。</p>
+</div>
+</body>
+</html>
